@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>銀魂 答案之书</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #app {
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  #mainCanvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 1;
+  }
+
+  #cnText {
+    position: absolute;
+    bottom: 8vh;
+    width: 90%;
+    text-align: left;
+    font-family: 'Noto Sans SC', sans-serif;
+    font-weight: 400;
+    font-size: clamp(14px, 3vw, 22px);
+    color: rgba(255, 255, 255, 0.85);
+    z-index: 2;
+    line-height: 1.6;
+    padding: 0 5vw;
+    transition: opacity 0.4s ease;
+  }
+
+  #epInfo {
+    position: absolute;
+    bottom: 3vh;
+    right: 5vw;
+    font-family: 'Noto Sans SC', sans-serif;
+    font-weight: 400;
+    font-size: clamp(11px, 2vw, 15px);
+    color: rgba(255, 255, 255, 0.3);
+    z-index: 2;
+  }
+
+  #hint {
+    position: absolute;
+    top: 4vh;
+    width: 100%;
+    text-align: center;
+    font-family: 'Noto Sans JP', 'Noto Sans SC', sans-serif;
+    font-size: clamp(12px, 2.5vw, 18px);
+    color: rgba(255, 255, 255, 0.15);
+    z-index: 2;
+    letter-spacing: 0.3em;
+    animation: breathe 3s ease-in-out infinite;
+  }
+
+  @keyframes breathe {
+    0%, 100% { opacity: 0.15; }
+    50% { opacity: 0.35; }
+  }
+
+  .fade-out {
+    opacity: 0 !important;
+  }
+
+  .fade-in {
+    animation: fadeIn 0.5s ease forwards;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="mainCanvas"></canvas>
+  <div id="hint">TAP TO REVEAL</div>
+  <div id="cnText" class="fade-out"></div>
+  <div id="epInfo" class="fade-out"></div>
+</div>
+
+<script>
+(function() {
+  // ============ SVG Filter for 飛白 (dry brush) effect ============
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', '0');
+  svg.setAttribute('height', '0');
+  svg.style.position = 'absolute';
+
+  const filter = document.createElementNS(svgNS, 'filter');
+  filter.setAttribute('id', 'brushFilter');
+  filter.setAttribute('x', '-5%');
+  filter.setAttribute('y', '-5%');
+  filter.setAttribute('width', '110%');
+  filter.setAttribute('height', '110%');
+
+  // feTurbulence for noise texture
+  const turbulence = document.createElementNS(svgNS, 'feTurbulence');
+  turbulence.setAttribute('type', 'fractalNoise');
+  turbulence.setAttribute('baseFrequency', '0.025 0.05');
+  turbulence.setAttribute('numOctaves', '4');
+  turbulence.setAttribute('seed', Math.floor(Math.random() * 100));
+  turbulence.setAttribute('result', 'noise');
+
+  const displace = document.createElementNS(svgNS, 'feDisplacementMap');
+  displace.setAttribute('in', 'SourceGraphic');
+  displace.setAttribute('in2', 'noise');
+  displace.setAttribute('scale', '8');
+  displace.setAttribute('xChannelSelector', 'R');
+  displace.setAttribute('yChannelSelector', 'G');
+  displace.setAttribute('result', 'displaced');
+
+  // Erode edges slightly for dry brush effect
+  const erode = document.createElementNS(svgNS, 'feMorphology');
+  erode.setAttribute('operator', 'erode');
+  erode.setAttribute('radius', '0.5');
+  erode.setAttribute('in', 'displaced');
+  erode.setAttribute('result', 'eroded');
+
+  // Dilate back slightly for rough edges
+  const dilate = document.createElementNS(svgNS, 'feMorphology');
+  dilate.setAttribute('operator', 'dilate');
+  dilate.setAttribute('radius', '0.8');
+  dilate.setAttribute('in', 'eroded');
+  dilate.setAttribute('result', 'rough');
+
+  // Second displacement with different noise pattern
+  const turbulence2 = document.createElementNS(svgNS, 'feTurbulence');
+  turbulence2.setAttribute('type', 'fractalNoise');
+  turbulence2.setAttribute('baseFrequency', '0.08 0.12');
+  turbulence2.setAttribute('numOctaves', '3');
+  turbulence2.setAttribute('seed', Math.floor(Math.random() * 100));
+  turbulence2.setAttribute('result', 'noise2');
+
+  const displace2 = document.createElementNS(svgNS, 'feDisplacementMap');
+  displace2.setAttribute('in', 'rough');
+  displace2.setAttribute('in2', 'noise2');
+  displace2.setAttribute('scale', '3');
+  displace2.setAttribute('xChannelSelector', 'R');
+  displace2.setAttribute('yChannelSelector', 'G');
+
+  filter.appendChild(turbulence);
+  filter.appendChild(displace);
+  filter.appendChild(erode);
+  filter.appendChild(dilate);
+  filter.appendChild(turbulence2);
+  filter.appendChild(displace2);
+  svg.appendChild(filter);
+  document.body.appendChild(svg);
+
+  // ============ Canvas setup ============
+  const canvas = document.getElementById('mainCanvas');
+  const ctx = canvas.getContext('2d');
+  let dpr = window.devicePixelRatio || 1;
+  let W, H;
+
+  function resizeCanvas() {
+    dpr = window.devicePixelRatio || 1;
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (currentEp) drawTitle(currentEp);
+  }
+
+  // ============ Episode data (embedded) ============
+  const EPISODES = [{"ep":"1","ja":"てめーらァァァ!!それでも銀魂ついてんのかァァァ!(前編)","cn":"你们这群混蛋!!就这样还能叫银魂吗!(前篇)"},{"ep":"2","ja":"てめーらァァァ!!それでも銀魂ついてんのかァァァ!(後編)","cn":"你们这群混蛋!!就这样还能叫银魂吗!(后篇)"},{"ep":"3","ja":"天然パーマに悪い奴はいない","cn":"天然卷发的家伙都不是坏人"},{"ep":"4","ja":"ジャンプは時々土曜にでるから気をつけろ","cn":"JUMP有时候周六发售要注意啊"},{"ep":"5","ja":"ジジイになっても名前で呼び合える友達を作れ","cn":"交朋友就要交那种即使变成老头了也能互叫绰号的"},{"ep":"6","ja":"一度した約束は死んでも守れ","cn":"一旦约定至死也要遵守"},{"ep":"7","ja":"ペットは飼い主が責任をもって最後まで面倒を見ましょう","cn":"宠物的主人要负起责任照顾到最后"},{"ep":"8","ja":"粘り強さとしつこさは紙一重","cn":"坚韧不屈与死缠烂打只是一纸之隔"},{"ep":"9","ja":"喧嘩はグーでやるべし","cn":"打架的时候就应该漂亮的出拳"},{"ep":"10","ja":"疲れた時は酸っぱい物を","cn":"累的时候喝点酸的东西吧"},{"ep":"11","ja":"べちゃべちゃした団子なんてなぁ団子じゃねぇバカヤロー","cn":"烂糟糟的丸子根本就不是丸子你这个笨蛋"},{"ep":"12","ja":"第一印象がいい奴にロクな奴はいない","cn":"第一印象好的家伙不一定就是好人"},{"ep":"13","ja":"コスプレするなら心まで飾れ","cn":"COSPLAY的话就连心一起"},{"ep":"14","ja":"男にはカエルに触れて一人前みたいな訳のわからないルールがある","cn":"敢摸青蛙也是成为真正男人的变态条件"},{"ep":"14B","ja":"脇だけ洗っときゃいいんだよ脇だけ","cn":"只洗腋下就行啦"},{"ep":"15","ja":"飼い主とペットは似る","cn":"物似主人形"},{"ep":"16","ja":"考えたら人生ってオッさんになってからの方が長いんじゃねーか！恐っ！！","cn":"仔细想想人生是变成大叔之后才觉得漫长!可怕啊!!"},{"ep":"17","ja":"親子ってのは嫌なとこばかり似るもんだ","cn":"所谓父子就是连讨厌的东西也一样"},{"ep":"18","ja":"ああ やっぱり我が家が一番だわ","cn":"唉~还是我家最好啊"},{"ep":"19","ja":"海の水がなぜしょっぱいかだと？オメーら都会人が泳ぎながら用足してるからだろーがァァ！！","cn":"为什么海水这么咸?还不是因为你们边游泳边小便!!"},{"ep":"20","ja":"ベルトコンベアには気をつけろ","cn":"要小心传送带"},{"ep":"21","ja":"扇風機つけっぱなしで寝ちゃうとお腹こわしちゃうから気を付けて","cn":"开着风扇睡觉会肚子疼的要小心啊"},{"ep":"22","ja":"結婚とは勘違いを一生涯し続けることだ","cn":"所谓结婚就是把错误持续一生"},{"ep":"23","ja":"困った時は笑っとけ笑っとけ","cn":"困难的时候笑一个就好啦笑一个"},{"ep":"24","ja":"カワイイ顔には必ず何かが隠れてる","cn":"可爱的外表下必定隐藏着什么"},{"ep":"25","ja":"鍋は人生の縮図である","cn":"火锅就是人生的缩影"},{"ep":"26","ja":"恥ずかしがらずに手を挙げて言え","cn":"不必害羞举手报告就是了"},{"ep":"27","ja":"刀じゃ斬れないものがある","cn":"世上也有刀斩不断的东西"},{"ep":"28","ja":"いい事は連続して起こらないくせに悪い事は連続して起こるもんだ","cn":"好事不会连续发生可为什么坏事总会接连不断啊"},{"ep":"29A","ja":"慌てるな！クーリングオフというものがある","cn":"不要慌!别忘了还有冷静期一说"},{"ep":"29B","ja":"テレビとか新聞とかちゃんと見ないとダメだって","cn":"不好好看电视还有报纸怎么行"},{"ep":"30","ja":"アイドルだってほぼお前らと同じことやってんだよ","cn":"所谓的偶像其实跟你也没什么不同"},{"ep":"31","ja":"どうでもいい事に限ってなかなか忘れない","cn":"那些无所谓的小事反而难以忘记"},{"ep":"32","ja":"人生はベルトコンベアのように流れる","cn":"人生就像传送带一样不停旋转流逝"},{"ep":"33","ja":"人の名前とか間違えるの失礼だ","cn":"弄错别人的姓名是很失礼的"},{"ep":"34","ja":"恋にマニュアルなんていらない","cn":"恋爱是不需要指南的"},{"ep":"35","ja":"恋にマニュアルなんていらない・延長戦","cn":"不能以貌取人啊"},{"ep":"35B","ja":"外見だけで人を判断しちゃダメ","cn":"不能以貌取人啊"},{"ep":"36","ja":"脛に傷がある奴ほどよくしゃべる","cn":"心怀鬼胎的人往往能说会道"},{"ep":"37","ja":"サンタなんていねーんだよって言い張る奴こそホントはいるって信じたいんだよ","cn":"一直刻意强调没有圣诞老人的家伙其实打心眼里希望他存在"},{"ep":"38A","ja":"雪ではしゃぐのは子供だけ","cn":"只有小孩才会因为下雪而兴奋"},{"ep":"38B","ja":"冬に食べるアイスもなかなかオツなもんだ","cn":"冬天里吃冰淇淋也别有风味"},{"ep":"39","ja":"メニューの多いラーメン屋はたいてい流行ってない","cn":"菜单上种类很多的拉面店一般都没有人气"},{"ep":"40","ja":"子作りは計画的に","cn":"生小孩要有计划"},{"ep":"41","ja":"タイトルだけじゃ映画の面白さはわかんない","cn":"光看标题是无法理解电影内容的"},{"ep":"42","ja":"みみずにおしっこかけると腫れるよ","cn":"朝蚯蚓小便的话你重要的地方就会肿起来"},{"ep":"43","ja":"キャラクターはシルエットだけで読者に見分けがつくように描き分けよう","cn":"描绘角色就要做到让读者光凭剪影就能认出来的地步"},{"ep":"44","ja":"お母さんだって忙しいんだから夕飯のメニューに文句つけるの止めなさい","cn":"老妈我也是很忙的不要对晚饭说三道四"},{"ep":"45","ja":"愛犬の散歩は適度なスピードで","cn":"带爱犬散步要保持适当的速度"},{"ep":"46","ja":"××遊びは20歳になってから","cn":"等你20岁再去酒店玩吧"},{"ep":"47","ja":"さくらんぼってアレ桜の木になるの？","cn":"樱花啊会长成樱花树么？"},{"ep":"48","ja":"似てる二人は喧嘩する","cn":"相似的两人会经常吵架"},{"ep":"49","ja":"ギャンブルのない人生なんてわさび抜きの寿司みてぇなもんだ","cn":"没有赌博的人生就像没有放芥末的寿司一样"},{"ep":"50","ja":"未定は未定であって決定ではない","cn":"无题"},{"ep":"51","ja":"ミルクは人肌の温度で","cn":"牛奶要用人的体温才最好"},{"ep":"52","ja":"人に会う時はまずアポを","cn":"和人见面要先预约"},{"ep":"53","ja":"ストレスはハゲる原因になるがストレスをためないように気を配るとそこでまたストレスがたまるので結局僕らにできることなんて何もない","cn":"压力是导致秃顶的原因…所以归根到底我们无能为力"},{"ep":"54","ja":"どこの母ちゃんもだいたい同じ","cn":"天下的娘亲一样亲"},{"ep":"55","ja":"ものを食べるとき、クチャクチャ音をたてない","cn":"吃东西的时候不要发出声音"},{"ep":"56","ja":"一日局長に気をつけろッテンマイヤーさん","cn":"小心一日局长"},{"ep":"57","ja":"無くした物を探すときはその日の行動をさかのぼれ","cn":"寻找丢失的物品时要沿着那天的行动追溯回去"},{"ep":"58","ja":"売店ではやっぱコロッケパンが一番人気","cn":"小卖部里最受欢迎的食物果然还是炸肉饼面包"},{"ep":"59","ja":"傘の置き忘れに注意","cn":"注意别忘了把伞带走"},{"ep":"60","ja":"陽はまた昇る","cn":"太阳会再升起"},{"ep":"61","ja":"暗夜の虫は光に集う","cn":"暗夜之虫会集光中"},{"ep":"62","ja":"ミイラ捕りがミイラに","cn":"适得其反"},{"ep":"63","ja":"ジャンプの次号予告は当てにならない","cn":"JUMP的次回预告是不能相信的"},{"ep":"64","ja":"んまい棒は意外とお腹いっぱいになる","cn":"没想到美味棒吃下去还挺饱的"},{"ep":"65","ja":"少年はカブト虫を通し生命の尊さを知る","cn":"少年将通过独角仙得知生命的尊严"},{"ep":"66","ja":"華より団子","cn":"实质重于外表"},{"ep":"67","ja":"走り続けてこそ人生","cn":"不断奔跑才是人生"},{"ep":"68","ja":"渡る世間はオバケばかり","cn":"行走世间全都是妖怪"},{"ep":"69","ja":"ゴミの分别回収にご協力下さい","cn":"请协助做好垃圾分类回收"},{"ep":"70","ja":"可愛いモノも多すぎると気持ち悪い","cn":"可爱的东西太多了也会反胃"},{"ep":"71","ja":"消せないデータもある","cn":"有些数据是删除不掉的"},{"ep":"72A","ja":"犬の肉球は香ばしい匂いがする","cn":"狗的肉球有令人愉悦的香味"},{"ep":"72B","ja":"かもしれない運転でいけ","cn":"抱着也许能驾驶的想法上路吧"},{"ep":"73","ja":"そんなに松茸って美味しいもんなのか 一度よく考えてみよう","cn":"松茸真的那么美味么再想想吧"},{"ep":"74","ja":"漫画家は原稿のストックが出来てこそ一人前","cn":"漫画家就要学会存原稿才能独当一面"},{"ep":"76","ja":"そういう時は黙って赤飯","cn":"这个时候就默默的煮红豆饭吧"},{"ep":"77","ja":"昨日の敵は今日もなんやかんやで敵","cn":"今天的敌人到了明天还是敌人"},{"ep":"78","ja":"食べ物の好き嫌い多い人は人間の好き嫌いも多い","cn":"对食物的喜好强烈的人对人的喜好也就很直接"},{"ep":"79","ja":"四人揃えば、いろんな知恵","cn":"六个臭皮匠顶两个诸葛亮"},{"ep":"81","ja":"女の一番の化粧は笑顔","cn":"女人的笑容就是最好的化妆"},{"ep":"82B","ja":"カワイイを連発する自分自身をカワイイと思ってんだろ お前ら","cn":"你们觉得一口一个卡哇伊的自己也很卡哇伊是吧"},{"ep":"83","ja":"運に身分は関係ない","cn":"运气跟身份没关系"},{"ep":"84","ja":"男は心に固ゆで卵","cn":"男人的内心有颗坚硬的水煮蛋"},{"ep":"85","ja":"固ゆで卵は潰れない","cn":"硬鸡蛋打不碎"},{"ep":"86","ja":"羊数えるの自体に夢中になったりして結局眠れないことも多い","cn":"数羊数得起劲结果没睡成也是常有的事"},{"ep":"87","ja":"私と仕事どっち大事なのとかいう女にはジャーマンスープレックス","cn":"说出我和工作哪个更重要的女人通通一个过肩摔摔出去"},{"ep":"88","ja":"合コンは始まるまでが一番楽しい","cn":"联谊在开始前是最有趣的"},{"ep":"89","ja":"二度あることは三度ある","cn":"事情有过两次就还有三次"},{"ep":"90A","ja":"美味いものほど当たると恐い","cn":"越美味的东西吃坏肚子时越恐怖"},{"ep":"91","ja":"やせたいなら動け 食べるな","cn":"想减肥就给我动起来不许吃东西"},{"ep":"92","ja":"人の短所を見るより長所を見つけられる人になれ","cn":"与其看着别人的短处不如做个善于发现他人长处的人"},{"ep":"93","ja":"ヒーローだって悩んでる","cn":"英雄也有烦恼时"},{"ep":"94","ja":"電車に乗るときは必ず両手を吊り革に","cn":"搭电车时务必用双手抓住吊环"},{"ep":"95","ja":"男達よマダオであれ","cn":"男儿便做MADAO"},{"ep":"96","ja":"男なら諦めるな","cn":"以前的英雄事迹要夸张三分"},{"ep":"97A","ja":"昔の武勇伝は三割増で話せ 盛り上がればいいんだよ盛り上がれば","cn":"以前的英雄事迹要夸张三分大家热闹一下就行了"},{"ep":"97B","ja":"花屋とかケーキ屋の娘に男は弱い","cn":"男人最难抗拒花店和蛋糕店的女孩"},{"ep":"98","ja":"ゲームは一日一時間","cn":"游戏一天只能一小时"},{"ep":"99","ja":"人生もゲームもバグだらけ","cn":"人生和游戏都充满BUG"},{"ep":"100","ja":"好かれないものほど愛おしい","cn":"越不招人喜欢越可爱"},{"ep":"101","ja":"掟は破るためにこそある","cn":"规定就是为了被打破而存在的"},{"ep":"102","ja":"オタクは話し好き","cn":"OTAKU就是话多"},{"ep":"103","ja":"長所と短所は見えにくい","cn":"长处和短处只有一纸之隔"},{"ep":"104","ja":"大切なものは見えにくい","cn":"重要的东西总是难以发现"},{"ep":"105","ja":"何事もノリとタイミング","cn":"任何事都要看拍子和时机"},{"ep":"106","ja":"恋ってたいていサドンデス方式","cn":"恋爱大体上都是突然死亡的方式"},{"ep":"107","ja":"親の心子知らず","cn":"可怜天下父母心"},{"ep":"108","ja":"言わぬが花","cn":"有些事还是不说为妙"},{"ep":"109","ja":"人生は試験だ","cn":"人生就是考试"},{"ep":"110","ja":"人は皆 自分という檻を破る脱獄囚","cn":"每个人都是冲破名为自我的牢笼的越狱犯"},{"ep":"112A","ja":"二十代の誕生日に深い意味はない","cn":"20岁的生日并没有什么深意"},{"ep":"112B","ja":"起きて働く果報者","cn":"醒着就要工作的幸福之人"},{"ep":"113","ja":"便器を磨く事これ心を磨く事なり","cn":"清洗厕所就是在洗涤心灵"},{"ep":"114","ja":"プリンに醤油かけたらウニの味がするって言うけどプリンに醤油かけてもプリンと醤油の味しかしない","cn":"虽说在布丁上浇上酱油就会有海胆味但其实只有布丁和酱油味道"},{"ep":"115","ja":"夏休みは始まる前が一番楽しい","cn":"暑假开始前那段时间才是最愉快的"},{"ep":"116","ja":"亀の甲より年の功","cn":"姜还是老的辣"},{"ep":"117","ja":"美は夏の果実の如き物","cn":"美丽犹如夏天的果实"},{"ep":"118","ja":"腰は曲がってもまっすぐに","cn":"即使折了腰也要笔直前行"},{"ep":"119","ja":"タバコは一箱に一、二本馬糞みたいな匂いする奴が入っている","cn":"一包烟里总会掺进一两支马粪味道的东西"},{"ep":"120A","ja":"海外の日本料理店の味はだいたい学食レベル","cn":"海外的日本料理店的味道大概就是学生食堂的等级"},{"ep":"120B","ja":"一度取った皿は戻さない","cn":"一旦被拿走的盘子就不会被放回来"},{"ep":"121","ja":"素人はプラスとマイナスだけで十分だ","cn":"新手只要一字和十字的螺丝刀就足够了"},{"ep":"122","ja":"想像力は中2で培われる","cn":"想象力应从初二培养"},{"ep":"123","ja":"いつも心に一本のドライバー","cn":"一直存在于心中的一把螺丝刀"},{"ep":"124","ja":"おねだりも度が過ぎれば脅迫","cn":"过分要求就是威胁"},{"ep":"125","ja":"最終章突入!(酔ってなくても酔ったふりして上司のヅラとれ)","cn":"最终章突入"},{"ep":"126","ja":"文字でしか伝わらないものがある","cn":"也有文字传达不了的事情"},{"ep":"127","ja":"会わないとわからないこともある","cn":"也有不见面就无法了解的东西"},{"ep":"128","ja":"会ってもわからないこともある","cn":"见了面也会有不明白的事"},{"ep":"129","ja":"拾い食いに気をつけろ","cn":"注意不要随便捡东西吃"},{"ep":"130","ja":"猫好きと犬好きは相容れない","cn":"猫派和狗派水火不容"},{"ep":"131","ja":"旅行先ではだいたいケンカする","cn":"旅行往往得干架"},{"ep":"132","ja":"ブリーフの××（ウン）筋は絶対不可避","cn":"紧身内裤难免会沾上屎"},{"ep":"133","ja":"銀と閣下の穀潰し","cn":"银时与饭桶阁下"},{"ep":"134","ja":"幽霊ネタやる時は慎重に","cn":"使用幽灵作为题材时要慎重"},{"ep":"135","ja":"地球の前に、もっと危ない「ギンタマン」の未来を考えろ","cn":"在考虑地球之前要考虑更加凶险的银蛋的未来"},{"ep":"136","ja":"己の居場所は己で作るものなり","cn":"自己的屋子自己造"},{"ep":"137A","ja":"告白に自信のある男なんて99%いない","cn":"99%的男生对告白不自信"},{"ep":"138","ja":"時には昔の話をしようか","cn":"偶尔说说过去的故事吧"},{"ep":"139","ja":"財布は尻ポケットに入れるな","cn":"不要把钱包放在屁股口袋"},{"ep":"140","ja":"晴れの日に雨傘さす奴には御用心","cn":"要小心晴天打伞的人"},{"ep":"141","ja":"ケンカの横槍は危険","cn":"干涉打架是很危险的"},{"ep":"142","ja":"人生は選択肢の連続","cn":"人生就是接连不断的选择题"},{"ep":"143","ja":"四本足で立つのが獣 二本足と意地と見栄で立つのが男","cn":"四条腿走路的是禽兽两条腿走路的是男人志气高远"},{"ep":"144","ja":"寝物語は信用するな","cn":"不能相信枕边话"},{"ep":"145","ja":"絆の色は十人十色","cn":"羁绊的颜色是十人十色的"},{"ep":"146","ja":"昼間に飲む酒は一味違う","cn":"白日喝酒别有一番风味"},{"ep":"147","ja":"全ての大人達は全ての子供達のインストラクター","cn":"所有的大人都是小孩子的老师"},{"ep":"148","ja":"チャックはゆっくり引きあげろ","cn":"拉链要慢慢往上拉"},{"ep":"150","ja":"長いものには巻かれろ!!","cn":"胳膊拧不过大腿"},{"ep":"151","ja":"髪切りながら交わされる美容師との会話は世界で一番どうでもいい","cn":"理发师一边剪头发一边和你聊的话题是全世界最无关紧要的"},{"ep":"152","ja":"天は人の上に人をつくらず髷をつくりました","cn":"天不在人之上造人而造了发髻"},{"ep":"154","ja":"誕生日会はいつものアイツが違う奴に見える","cn":"生日会上平时的家伙会像换了个人似的"},{"ep":"155","ja":"裏の裏の裏は裏","cn":"反面的反面的反面还是反面"},{"ep":"156","ja":"屋台に入るには微妙に勇気がいる","cn":"走入路边摊需要微妙的勇气"},{"ep":"157","ja":"男が揃えばどんな場所でも戦場になる","cn":"男人聚集的地方一定会成为战场"},{"ep":"158","ja":"友達がケガしたらすぐに病院へ","cn":"朋友受伤的话要马上送医院"},{"ep":"159","ja":"みかんは一個腐るといつの間にかダンボール中のみかんを腐らせる","cn":"只要有一个橘子烂掉整箱橘子都会在不知不觉中烂掉"},{"ep":"160","ja":"外国人から見たらこっちも外国人 宇宙人から見たらこっちも宇宙人","cn":"在外国人看来我们是外国人在宇宙人看来我们也是宇宙人"},{"ep":"161","ja":"何回見てもラピュタはいい","cn":"无论看多少次都觉得天空之城真棒"},{"ep":"162","ja":"愛とは無償のものなり","cn":"爱是无偿的"},{"ep":"163","ja":"黒船は沈む時も派手","cn":"黑船就算沉的时候也会很华丽"},{"ep":"164A","ja":"松茸のお吸い物ってアレ ホンモノよりうまいよね","cn":"松菇汤比松菇更好味呢"},{"ep":"164B","ja":"人は死んだら生き返らない","cn":"人是不会起死回生的"},{"ep":"165","ja":"柳の下にどじょうは沢山いる","cn":"柳树下面有很多泥鳅"},{"ep":"166","ja":"一つより二つ 一人より二人","cn":"一个不如两个一人不如两人"},{"ep":"167","ja":"なめらかなポリゴンは人の心もなめらかにする","cn":"圆滑的多边形能让人的内心圆润"},{"ep":"168","ja":"人の身体は小宇宙","cn":"人的身体就是一个小宇宙"},{"ep":"169","ja":"導かれしバカたち","cn":"被引导的笨蛋们"},{"ep":"170","ja":"そして伝説へ","cn":"勇者斗小玉4传说的终结"},{"ep":"171A","ja":"真似ばかりしていると訴えられる","cn":"一味地模仿是会被人家起诉的"},{"ep":"171B","ja":"なくなって初めてわかるいとおしさ","cn":"直到失去了才明白拥有的珍贵"},{"ep":"172","ja":"アメとムチは使いよう","cn":"糖和鞭子要并用"},{"ep":"173B","ja":"見た目ではなく中身といっても限度がある","cn":"就算内在重要外表也该有个限度"},{"ep":"174A","ja":"海に向かってバカヤローとか言う人ってまだいるのだろうか","cn":"现在还有哪种会朝大海喊混蛋的人吗"},{"ep":"174B","ja":"人は閉じ込められると自分の中の扉が開く","cn":"当人被关起来的时候自身心中的门就会打开"},{"ep":"175","ja":"幾つになっても歯医者は嫌","cn":"看牙医这种事情不管长大到多少岁都讨厌"},{"ep":"176","ja":"カウントダウン開始","cn":"倒数开始"},{"ep":"177","ja":"夜の蜘蛛は縁起が悪い","cn":"晚上的蜘蛛真不吉利"},{"ep":"178","ja":"蜘蛛の糸は一度絡まるとなかなかとれない","cn":"一旦被蜘蛛丝缠上的话就难以解脱"},{"ep":"179","ja":"チャランポランな奴程怒ると恐い","cn":"越是吊儿郎当的家伙生起气来越恐怖"},{"ep":"180","ja":"大切な荷ほど重く背負い難い","cn":"越是重要的行李越沉重越难背负"},{"ep":"181","ja":"酒と女はワンセットで気をつけろ","cn":"酒与女人要一并注意"},{"ep":"182","ja":"人気投票なんて糞食らえ","cn":"人气投票什么的吃粑粑去吧"},{"ep":"183","ja":"人気投票なんて燃えて灰になれ","cn":"人气投票什么的烧成灰吧"},{"ep":"184","ja":"人気投票なんて・・・","cn":"人气投票什么的..."},{"ep":"185A","ja":"故郷とおっぱいは遠くにありて思うもの","cn":"故乡和乳汁相隔越远越令人怀念"},{"ep":"186","ja":"死亡フラグに気をつけろ","cn":"要小心死亡预告"},{"ep":"187","ja":"フラグを踏んだらサヨウナラ","cn":"踩到死亡伏笔就该说再见"},{"ep":"188","ja":"観察日記は最後までやりきろう","cn":"观察日记要有始有终"},{"ep":"189B","ja":"ラジオ体操は少年少女の社交場","cn":"广播体操是少年少女的社交场所"},{"ep":"190","ja":"捜しものをする時はそいつの目線になって捜せ","cn":"找东西的时候就要以它的视线去找"},{"ep":"191","ja":"自由とは無法ではなく己のルールで生きること","cn":"自由不是无法无天而是按照自己的规则活下去"},{"ep":"192","ja":"かぶき町野良猫ブルース","cn":"歌舞伎町野猫的蓝调"},{"ep":"193","ja":"料理は根性","cn":"料理就是毅力"},{"ep":"194","ja":"リヴァイアサンってきいたらどうしてもサザエさんがちらつく俺のバカ！！","cn":"说到海怪脑中却只会不断浮现出海螺小姐的我真是笨蛋"},{"ep":"195","ja":"雨ニモ負ケズ","cn":"不要输给雨"},{"ep":"196","ja":"風ニモ負ケズ","cn":"不输给风"},{"ep":"197","ja":"嵐ニモ負ケズ","cn":"不输给暴风雨"},{"ep":"198","ja":"イカナル時ニモ笑顔ヲ絶ヤサナイ","cn":"不管什么时候都要笑容不断"},{"ep":"199","ja":"ソンナ強ク美シイモノニ私ハナリタイ","cn":"我想成为那般坚强美丽的人"},{"ep":"200","ja":"サンタクロースの赤は血の色","cn":"圣诞老人的红色是血染的"},{"ep":"201","ja":"人類みなサンタ","cn":"人人都是圣诞老人"},{"ep":"202","ja":"寒は源自る堪忍其処暑さ忘れがちな人生の差かな","cn":"春假过后大家看起来都成熟多了"},{"ep":"204","ja":"年賀状は筆で書け&ココロはタイコで叩け","cn":"贺年卡都给我用毛笔写"},{"ep":"205","ja":"メガネは魂の一部です","cn":"眼镜是心灵的一部分"},{"ep":"206","ja":"やめられない止まらない","cn":"不要以为会一直有父母和钱和青春和房子和T恤和我和你和银魂动画"},{"ep":"210","ja":"不感症な男はどうでもいい男だ","cn":"聚集于法外之街的全是些吃呀喝呀的家伙"},{"ep":"211","ja":"空腹に勝るものなし","cn":"大闹坟场的不是只有幽灵"},{"ep":"213","ja":"さらば愛しき四天王","cn":"请听吾言"},{"ep":"215","ja":"一人にするより全員で一つ","cn":"是双是单"},{"ep":"216","ja":"仁義なき戦争は泥沼へ","cn":"去工厂参观老实说根本啥都记不住"},{"ep":"218","ja":"ペナルティは命取り","cn":"有二就有三"},{"ep":"219","ja":"ゲームブレイク","cn":"螃蟹的钳子是剪断羁绊的钳子"},{"ep":"220","ja":"一人暮らしは自由の香り","cn":"人常在不知不觉中把别人的东西占为己有"},{"ep":"221","ja":"寿限無寿限無五劫の擦り切れ","cn":"寿限无"},{"ep":"223","ja":"おっさんの家庭事情はハード ハートはソフト","cn":"大叔的家务事都相当硬派内心则意外的软"},{"ep":"224","ja":"誰も知らないその道","cn":"蓝与红的狂想曲"},{"ep":"225","ja":"獄門前行列は見たい奴だけ見とけばいい","cn":"越狱风云"},{"ep":"226","ja":"誰のための仕事","cn":"的确已经越狱了不过想成这个腐败的社会才是牢狱所以还在越狱就行了"},{"ep":"227","ja":"友よ遠く離れるも","cn":"要记得也有像异形战场那种的同台演出"},{"ep":"228","ja":"LOVE ZULAS","cn":"爱情无正亦无负"},{"ep":"230","ja":"ここのタイトルもメールのタイトルみたいなトコも考えるのメンド臭え","cn":"想这里的标题就跟简讯标题一样麻烦"},{"ep":"232","ja":"ウケるか いけるか","cn":"容易忘记的家伙总在容易忘记时出现"},{"ep":"233","ja":"人生のこたつに入るタイミング","cn":"宇宙忽忽悠悠停泊记"},{"ep":"234","ja":"人生のこたつから出るタイミング","cn":"储金箱与烂铁箱"},{"ep":"235","ja":"隣のトマトがよくできると思うな","cn":"空洞的星球"},{"ep":"237","ja":"お前は何年平気で靴下脱いでんだよ!!","cn":"绝不让你说再见"},{"ep":"239","ja":"カカシ命!","cn":"慰劳旅行累人的旅行?"},{"ep":"241","ja":"恋愛は押し引き","cn":"忘年会上仍有不可忘记的事物"},{"ep":"242","ja":"その笑顔に揺れるようなお前は","cn":"人们靠着遗忘过活"},{"ep":"243","ja":"漢字には読めない漢字がある","cn":"看英文字首字母的话人类全都是牛郎"},{"ep":"244","ja":"江戸の人々","cn":"女生喜欢贝吉塔男生喜欢比克大魔王"},{"ep":"246","ja":"ぶらぶら","cn":"在名为漫画的画布以名为人生之笔描绘吧"},{"ep":"248","ja":"お前が泥棒に入ったらどうする","cn":"荆棘流氓与蔷薇流氓"},{"ep":"250","ja":"リアクションの少ない奴は裏がある","cn":"百万无用男"},{"ep":"252","ja":"あまたある勇気の中で一番勇気いる勇気","cn":"礼物请趁早送"},{"ep":"253","ja":"銀の魂の一人称は「オレ」","cn":"在对不起之前说声对不起"},{"ep":"254","ja":"見回り組の一人称は「俺」","cn":"烫直发的都是好人"},{"ep":"256","ja":"月々に我あり月月に我なし","cn":"月在殿内"},{"ep":"258","ja":"金の魂の一人称は「オイラ」","cn":"何谓主人公"},{"ep":"266","ja":"ポーズで決めるバカはポーズで終わる","cn":"五根手指"},{"ep":"267","ja":"どんな汚れもファンデーションじゃ落ちない","cn":"情定终生"},{"ep":"268","ja":"監察の恋は観察から始まる","cn":"月不西沉"},{"ep":"269","ja":"隠しこたえ隠しきれないもの","cn":"激光这个词能让所有人为之心动"},{"ep":"270","ja":"恋はチラシの裏","cn":"与其背年表不如多记住几个人物"},{"ep":"271","ja":"スニーカーとポンポンでつなぐもの","cn":"9+1=柳生十兵卫"},{"ep":"272","ja":"前説は長く簡潔に","cn":"热量总在你淡忘它时不期而至"},{"ep":"274","ja":"人はみな 他人の財布を中身","cn":"鼻孔大的家伙想像力无限大"},{"ep":"275","ja":"どこにでもあるめんどくさいやつ","cn":"老酒加汽油泪水映笑容"},{"ep":"277","ja":"恋はゴキブリ","cn":"狗粮比起长相吃起来味道更淡"},{"ep":"286","ja":"カレーを食う時は一口目に注意","cn":"暂停未必能换来转机"},{"ep":"287","ja":"二番目の衝動","cn":"有些垃圾用松居棒也清理不掉"},{"ep":"288","ja":"ごめんなさい ごめんなさい ごめんなさい","cn":"镜子会真实地反应世间美丑"},{"ep":"289","ja":"真選組は解散しました","cn":"同学会一旦迟到就不好意思进去"},{"ep":"290","ja":"アニメの主人公は変身がお仕事","cn":"同学会上不愿想起的回忆也会一并苏醒"},{"ep":"291","ja":"愚痴はねえな! しっかりしろよ! 死ぬなよ!","cn":"人生十五年化天弹指间浮梦如彩票"},{"ep":"293","ja":"そういう時はキスで解決","cn":"没有头和身体的灵魂无法进入天堂"},{"ep":"294","ja":"一夜の続きは二度としない","cn":"万事皆等价交换没有白吃的东西"},{"ep":"295","ja":"あいつらはあいつら 吾輩は吾輩","cn":"朋友就像包包里的东西少了它就会变轻"},{"ep":"296","ja":"新八お前","cn":"航海时一定要有罗盘"},{"ep":"297","ja":"まったりと進むのがいいらしい","cn":"忘不了的事不要勉强去忘"},{"ep":"298","ja":"あんたを裁くのは誰だ","cn":"迟到的家伙就给他吃竹叶吧"},{"ep":"300","ja":"うまい棒は味に自信がない","cn":"没有什么比独自在澡堂更让人感到孤独的了"},{"ep":"301","ja":"同期の桜","cn":"地球人忍耐着不把事情说出来"},{"ep":"317","ja":"夜桜","cn":"永别了死神"},{"ep":"320","ja":"よみがえる狼","cn":"凤凰会一再涅槃"},{"ep":"322","ja":"あだ名","cn":"神乐死了"},{"ep":"324","ja":"一度抜けた道を二度と歩かない","cn":"死者虽然没有嘴但会说话"},{"ep":"325","ja":"お休みなさいミスターホクト","cn":"大猩猩的作文"},{"ep":"326","ja":"銀之助","cn":"铁之weed"},{"ep":"328","ja":"いつかまた会えるさ","cn":"花开终有时"},{"ep":"329","ja":"ポーカーフェイス","cn":"夏天啥也没有2015"},{"ep":"332","ja":"走れ! 銀さん","cn":"我是蛋黄酱狂魔他小子是甜食党"},{"ep":"342","ja":"無敵","cn":"银之魂篇开幕"},{"ep":"344","ja":"反骨","cn":"银之魂篇"},{"ep":"354","ja":"帰還","cn":"银之魂篇"},{"ep":"357","ja":"さよなら","cn":"银之魂篇"},{"ep":"364","ja":"最終決戦","cn":"银之魂篇"},{"ep":"367","ja":"万事屋よ 永遠に","cn":"银之魂篇(TV最终话)"}];
+
+  // ============ State ============
+  let currentEp = null;
+  let isAnimating = false;
+  let db = null;
+  let lastViewedIndex = -1;
+
+  // ============ IndexedDB ============
+  function initDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('GintamaAnswersDB', 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('episodes')) {
+          const store = db.createObjectStore('episodes', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('episode', 'ep', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('history')) {
+          db.createObjectStore('history', { keyPath: 'timestamp' });
+        }
+      };
+      req.onsuccess = (e) => {
+        db = e.target.result;
+        checkAndPopulate(db).then(resolve).catch(reject);
+      };
+      req.onerror = reject;
+    });
+  }
+
+  function checkAndPopulate(db) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('episodes', 'readonly');
+      const store = tx.objectStore('episodes');
+      const countReq = store.count();
+      countReq.onsuccess = () => {
+        if (countReq.result === 0) {
+          populateDB(db).then(resolve).catch(reject);
+        } else {
+          resolve();
+        }
+      };
+      countReq.onerror = reject;
+    });
+  }
+
+  function populateDB(db) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('episodes', 'readwrite');
+      const store = tx.objectStore('episodes');
+      EPISODES.forEach(ep => store.add(ep));
+      tx.oncomplete = resolve;
+      tx.onerror = reject;
+    });
+  }
+
+  function getRandomFromDB() {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('episodes', 'readonly');
+      const store = tx.objectStore('episodes');
+      const countReq = store.count();
+      countReq.onsuccess = () => {
+        const total = countReq.result;
+        let idx;
+        do {
+          idx = Math.floor(Math.random() * total);
+        } while (idx === lastViewedIndex && total > 1);
+        lastViewedIndex = idx;
+        const getReq = store.get(idx + 1); // autoIncrement starts at 1
+        getReq.onsuccess = () => resolve(getReq.result);
+        getReq.onerror = reject;
+      };
+      countReq.onerror = reject;
+    });
+  }
+
+  function saveToHistory(ep) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('history', 'readwrite');
+      const store = tx.objectStore('history');
+      store.add({ timestamp: Date.now(), ep: ep.ep, ja: ep.ja, cn: ep.cn });
+      tx.oncomplete = resolve;
+      tx.onerror = reject;
+    });
+  }
+
+  // ============ Text rendering with brush effect ============
+  function drawTitle(ep) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    ctx.filter = 'url(#brushFilter)';
+
+    const jaText = ep.ja;
+    const baseFontSize = Math.min(W * 0.12, H * 0.11, 68);
+    const lineHeight = baseFontSize * 1.5;
+    const globalScale = 1 + (Math.random() - 0.5) * 0.2;
+    const maxLineWidth = W * 0.88;
+
+    ctx.fillStyle = '#fff';
+    ctx.textBaseline = 'middle';
+
+    // 先为每个字符随机生成字号并测量宽度
+    const chars = [];
+    for (const ch of jaText) {
+      const charScale = 1 + (Math.random() - 0.5) * 0.2;
+      const fs = baseFontSize * globalScale * charScale;
+      ctx.font = `900 ${fs}px "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "MS PGothic", sans-serif`;
+      const w = ctx.measureText(ch).width;
+      chars.push({ ch, fs, w });
+    }
+
+    // 基于实际像素宽度分行（优先在标点处断行）
+    const breaks = new Set(['!', '?', '。', '、', '・', '(', ')', '（', '）', '&', ' ', '/', '\\', '!', '？', '！']);
+    const lines = [];
+    let line = [];
+    let lineW = 0;
+    let lineChars = 0;
+
+    for (let i = 0; i < chars.length; i++) {
+      const c = chars[i];
+      const wouldW = lineW + c.w;
+      if (wouldW > maxLineWidth && line.length > 0) {
+        // 需要换行：尝试在标点处断开
+        let breakAt = line.length; // 默认当前字断
+        for (let j = line.length - 1; j >= 0; j--) {
+          if (breaks.has(line[j].ch)) {
+            breakAt = j + 1;
+            break;
+          }
+        }
+        lines.push(line.splice(0, breakAt));
+        // 把 splice 剩余的宽度重算
+        lineW = 0;
+        for (const r of line) lineW += r.w;
+        // 继续尝试放入当前字
+        if (lineW + c.w <= maxLineWidth) {
+          line.push(c);
+          lineW += c.w;
+        } else {
+          lines.push([...line]);
+          line = [c];
+          lineW = c.w;
+        }
+      } else {
+        line.push(c);
+        lineW = wouldW;
+      }
+    }
+    if (line.length > 0) lines.push(line);
+
+    // 根据行数动态缩小字号，避免行太多溢出
+    const maxLines = Math.floor((H * 0.72) / (baseFontSize * globalScale * 1.5));
+    let finalScale = 1;
+    if (lines.length > maxLines && maxLines > 0) {
+      finalScale = maxLines / lines.length;
+    }
+
+    const finalLineHeight = baseFontSize * globalScale * finalScale * 1.5;
+    const totalTextHeight = lines.length * finalLineHeight;
+    const startY = (H - totalTextHeight) / 2 + finalLineHeight / 2 - H * 0.04;
+
+    lines.forEach((lineChars, i) => {
+      const y = startY + i * finalLineHeight;
+      let totalW = lineChars.reduce((s, c) => s + c.w * finalScale, 0);
+      let x = (W - totalW) / 2;
+      for (const c of lineChars) {
+        const scaledFs = c.fs * finalScale;
+        const scaledW = c.w * finalScale;
+        ctx.font = `900 ${scaledFs}px "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "MS PGothic", sans-serif`;
+        const cy = y + (Math.random() - 0.5) * baseFontSize * 0.04;
+        ctx.globalAlpha = 0.12;
+        ctx.fillText(c.ch, x + scaledW / 2 + 1.5, cy + 1.5);
+        ctx.globalAlpha = 1;
+        ctx.fillText(c.ch, x + scaledW / 2, cy);
+        x += scaledW;
+      }
+    });
+
+    ctx.restore();
+  }
+
+  // ============ Interaction ============
+  function showNewTitle() {
+    if (isAnimating) return;
+    isAnimating = true;
+
+    const cnEl = document.getElementById('cnText');
+    const epEl = document.getElementById('epInfo');
+    const hintEl = document.getElementById('hint');
+
+    // Fade out current
+    cnEl.classList.remove('fade-in');
+    cnEl.classList.add('fade-out');
+    epEl.classList.add('fade-out');
+
+    if (hintEl) hintEl.style.display = 'none';
+
+    setTimeout(() => {
+      getRandomFromDB().then(ep => {
+        currentEp = ep;
+        drawTitle(ep);
+
+        cnEl.textContent = ep.cn;
+        cnEl.classList.remove('fade-out');
+        cnEl.classList.add('fade-in');
+
+        epEl.textContent = `EP.${ep.ep}`;
+        epEl.classList.remove('fade-out');
+        epEl.classList.add('fade-in');
+
+        saveToHistory(ep);
+        isAnimating = false;
+      });
+    }, 400);
+  }
+
+  // ============ Init ============
+  async function init() {
+    await document.fonts.ready;
+    resizeCanvas();
+    await initDB();
+    showNewTitle();
+  }
+
+  window.addEventListener('resize', resizeCanvas);
+  document.body.addEventListener('click', showNewTitle);
+  document.body.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    showNewTitle();
+  }, { passive: false });
+
+  // Keyboard support
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault();
+      showNewTitle();
+    }
+  });
+
+  init().catch(err => {
+    console.error('Init failed:', err);
+    // Fallback: use embedded data directly
+    const ep = EPISODES[Math.floor(Math.random() * EPISODES.length)];
+    currentEp = ep;
+    drawTitle(ep);
+    document.getElementById('cnText').textContent = ep.cn;
+    document.getElementById('cnText').classList.remove('fade-out');
+    document.getElementById('cnText').classList.add('fade-in');
+  });
+})();
+</script>
+</body>
+</html>
