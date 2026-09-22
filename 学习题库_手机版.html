@@ -240,8 +240,8 @@ footer{text-align:center;color:var(--sub);font-size:12px;padding:20px 0 10px}
       <div class="hint">数据存在你的 GitHub Gist 私密文件里。填 Token 后先「上传」，成功后 Gist ID 自动填充。换设备填同 ID 点「下载」即可。</div>
       <div class="m-label" style="margin-top:10px">GitHub Token（需 gist 权限）</div>
       <input type="password" id="gistToken" class="clip-input" placeholder="粘贴 Personal Access Token" onchange="saveGistConfig()">
-      <div class="m-label">Gist ID（首次上传后自动填充）</div>
-      <input type="text" id="gistId" class="clip-input" placeholder="留空，上传后自动生成" onchange="saveGistConfig()">
+      <div class="m-label">Gist ID（可选，下载时留空会自动搜索最新）</div>
+      <input type="text" id="gistId" class="clip-input" placeholder="留空则自动搜索" onchange="saveGistConfig()">
       <div class="btn-row">
         <button class="mbtn-p" onclick="gistUpload()">上传同步</button>
         <button class="mbtn-s" onclick="gistDownload()">下载同步</button>
@@ -884,7 +884,10 @@ document.addEventListener('keydown',function(e){
 });
 
 // ========== Gist 云同步 ==========
+// CORS 限制：GitHub Gist API 不允许跨域 PATCH，所以每次上传都 POST 创建新 Gist
+// 额外把时间戳写进 description，下载时列表搜索最新的一条
 var GIST_FILE='tk_sync.txt';
+var GIST_DESC='tk_sync';
 function saveGistConfig(){
   try{
     localStorage.setItem('tk_gist_token',document.getElementById('gistToken').value.trim());
@@ -908,18 +911,15 @@ function gistShowMsg(msg,type){
   var el=document.getElementById('gistStatus');
   if(el){el.textContent=msg;el.className='clip-status'+(type?' '+type:'');}
 }
-function gistApi(url,method,token,body,cb,errCb){
-  var headers={'Authorization':'token '+token,'Accept':'application/vnd.github.v3+json'};
-  var opts={method:method,headers:headers};
-  if(body){headers['Content-Type']='application/json';opts.body=body;}
-  fetch(url,opts)
-    .then(function(r){
-      if(!r.ok)throw new Error('HTTP '+r.status);
-      return r.json();
-    })
-    .then(function(d){cb(d);})
-    .catch(function(e){errCb(e);});
+function gistErr(act,e){
+  var msg=e.message;
+  if(msg.indexOf('401')>=0)msg='Token 无效';
+  else if(msg.indexOf('403')>=0)msg='Token 无 gist 权限';
+  else if(msg.indexOf('404')>=0)msg='Gist 不存在';
+  else if(msg.indexOf('Failed to fetch')>=0||msg.indexOf('NetworkError')>=0)msg='网络连接失败';
+  gistShowMsg(act+'失败：'+msg,'err');
 }
+// 上传：POST 创建新 Gist（不用 PATCH，绕过 CORS）
 function gistUpload(){
   var cfg=getGistCfg();
   if(!cfg.token){gistShowMsg('请先填写 Token','err');return;}
@@ -927,26 +927,27 @@ function gistUpload(){
   if(!data){gistShowMsg('编码失败','err');return;}
   saveGistConfig();
   gistShowMsg('正在上传...');
-  var body=JSON.stringify({description:'题库学习进度',public:false,files:{}});
+  var desc=GIST_DESC+'|'+Date.now();
+  var body=JSON.stringify({description:desc,public:false,files:{}});
   body=JSON.parse(body);body[GIST_FILE]={content:data};body=JSON.stringify(body);
-  if(!cfg.gistId){
-    gistApi('https://api.github.com/gists','POST',cfg.token,body,function(d){
+  var headers={'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'};
+  fetch('https://api.github.com/gists',{method:'POST',headers:headers,body:body})
+    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+    .then(function(d){
       if(d.id){document.getElementById('gistId').value=d.id;saveGistConfig();}
+      _lastUpload=Date.now();
       gistShowMsg('上传成功（'+new Date().toLocaleTimeString()+'）','ok');
-    },function(e){gistErr('上传',e);});
-  }else{
-    gistApi('https://api.github.com/gists/'+cfg.gistId,'PATCH',cfg.token,body,function(d){
-      gistShowMsg('上传成功（'+new Date().toLocaleTimeString()+'）','ok');
-    },function(e){gistErr('上传',e);});
-  }
+    })
+    .catch(function(e){gistErr('上传',e);});
 }
+// 下载：先试存的 ID，失败则列表搜索最新的
 function gistDownload(){
   var cfg=getGistCfg();
   if(!cfg.token){gistShowMsg('请先填写 Token','err');return;}
-  if(!cfg.gistId){gistShowMsg('请先上传以获取 Gist ID','err');return;}
   saveGistConfig();
   gistShowMsg('正在下载...');
-  gistApi('https://api.github.com/gists/'+cfg.gistId,'GET',cfg.token,null,function(d){
+  var headers={'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json'};
+  function applyGist(d){
     var f=d.files&&d.files[GIST_FILE];
     if(!f||!f.content){gistShowMsg('Gist 中未找到同步数据','err');return;}
     var decoded=decodeData(f.content);
@@ -957,15 +958,37 @@ function gistDownload(){
     if(decoded.examHistory){examHistory=decoded.examHistory;try{localStorage.setItem('tk_exam_history',JSON.stringify(examHistory));}catch(e){}}
     saveWrong();saveDone();
     refreshDataStats();renderAll();renderMode();
+    if(d.id){document.getElementById('gistId').value=d.id;saveGistConfig();}
     gistShowMsg('下载同步成功','ok');
-  },function(e){gistErr('下载',e);});
+  }
+  if(cfg.gistId){
+    fetch('https://api.github.com/gists/'+cfg.gistId,{headers:headers})
+      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+      .then(applyGist)
+      .catch(function(e){
+        // 存的 ID 失效，尝试搜索
+        gistSearchLatest(cfg.token,headers,applyGist);
+      });
+  }else{
+    gistSearchLatest(cfg.token,headers,applyGist);
+  }
 }
-function gistErr(act,e){
-  var msg=e.message;
-  if(msg.indexOf('401')>=0)msg='Token 无效';
-  else if(msg.indexOf('404')>=0)msg='Gist 不存在';
-  else if(msg.indexOf('Failed to fetch')>=0||msg.indexOf('NetworkError')>=0)msg='网络连接失败';
-  gistShowMsg(act+'失败：'+msg,'err');
+function gistSearchLatest(token,headers,cb){
+  fetch('https://api.github.com/gists?per_page=100',{headers:headers})
+    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+    .then(function(list){
+      var best=null,bestTs=0;
+      list.forEach(function(g){
+        if(g.description&&g.description.indexOf(GIST_DESC)===0&&g.files&&g.files[GIST_FILE]){
+          var parts=g.description.split('|');
+          var ts=parts[1]?parseInt(parts[1]):0;
+          if(ts>bestTs){bestTs=ts;best=g;}
+        }
+      });
+      if(!best){gistShowMsg('未找到同步数据，请先上传','err');return;}
+      cb(best);
+    })
+    .catch(function(e){gistErr('下载',e);});
 }
 // ========== 自动上传 ==========
 var autoUpload=false;
@@ -989,15 +1012,21 @@ function scheduleAutoUpload(){
   }
 }
 function doAutoUpload(){
-  _lastUpload=Date.now();
   var cfg=getGistCfg();
-  if(!cfg.token||!cfg.gistId)return;
+  if(!cfg.token)return;
   var data=encodeData();if(!data)return;
-  var body=JSON.stringify({description:'题库学习进度',files:{}});
+  var desc=GIST_DESC+'|'+Date.now();
+  var body=JSON.stringify({description:desc,public:false,files:{}});
   body=JSON.parse(body);body[GIST_FILE]={content:data};body=JSON.stringify(body);
-  gistApi('https://api.github.com/gists/'+cfg.gistId,'PATCH',cfg.token,body,function(d){
-    gistShowMsg('自动上传成功（'+new Date().toLocaleTimeString()+'）','ok');
-  },function(e){gistShowMsg('自动上传失败：'+e.message,'err');});
+  var headers={'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'};
+  fetch('https://api.github.com/gists',{method:'POST',headers:headers,body:body})
+    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+    .then(function(d){
+      _lastUpload=Date.now();
+      if(d.id){document.getElementById('gistId').value=d.id;saveGistConfig();}
+      gistShowMsg('自动上传成功（'+new Date().toLocaleTimeString()+'）','ok');
+    })
+    .catch(function(e){gistShowMsg('自动上传失败：'+e.message,'err');});
 }
 
 // ========== 剪贴板同步（离线备份） ==========
