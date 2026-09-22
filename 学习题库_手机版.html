@@ -916,8 +916,22 @@ function gistErr(act,e){
   if(msg.indexOf('401')>=0)msg='Token 无效';
   else if(msg.indexOf('403')>=0)msg='Token 无 gist 权限';
   else if(msg.indexOf('404')>=0)msg='Gist 不存在';
-  else if(msg.indexOf('Failed to fetch')>=0||msg.indexOf('NetworkError')>=0)msg='网络连接失败';
+  else if(msg.indexOf('Failed to fetch')>=0||msg.indexOf('NetworkError')>=0||msg.indexOf('CONNECTION')>=0)msg='网络连接失败（api.github.com 国内不稳定，请重试或挂代理）';
   gistShowMsg(act+'失败：'+msg,'err');
+}
+// 带重试的 fetch（网络断开自动重试 3 次）
+function gistFetch(url,opts,retries,cb,errCb){
+  retries=retries||3;
+  fetch(url,opts)
+    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+    .then(function(d){cb(d);})
+    .catch(function(e){
+      var netErr=e.message.indexOf('Failed to fetch')>=0||e.message.indexOf('NetworkError')>=0||e.message.indexOf('CONNECTION')>=0;
+      if(netErr&&retries>1){
+        gistShowMsg('网络断开，'+retries+'秒后重试...');
+        setTimeout(function(){gistFetch(url,opts,retries-1,cb,errCb);},(4-retries)*1000);
+      }else{errCb(e);}
+    });
 }
 // 上传：POST 创建新 Gist（不用 PATCH，绕过 CORS）
 function gistUpload(){
@@ -931,14 +945,11 @@ function gistUpload(){
   var body=JSON.stringify({description:desc,public:false,files:{}});
   body=JSON.parse(body);body.files[GIST_FILE]={content:data};body=JSON.stringify(body);
   var headers={'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'};
-  fetch('https://api.github.com/gists',{method:'POST',headers:headers,body:body})
-    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
-    .then(function(d){
-      if(d.id){document.getElementById('gistId').value=d.id;saveGistConfig();}
-      _lastUpload=Date.now();
-      gistShowMsg('上传成功（'+new Date().toLocaleTimeString()+'）','ok');
-    })
-    .catch(function(e){gistErr('上传',e);});
+  gistFetch('https://api.github.com/gists',{method:'POST',headers:headers,body:body},3,function(d){
+    if(d.id){document.getElementById('gistId').value=d.id;saveGistConfig();}
+    _lastUpload=Date.now();
+    gistShowMsg('上传成功（'+new Date().toLocaleTimeString()+'）','ok');
+  },function(e){gistErr('上传',e);});
 }
 // 下载：先试存的 ID，失败则列表搜索最新的
 function gistDownload(){
@@ -962,33 +973,26 @@ function gistDownload(){
     gistShowMsg('下载同步成功','ok');
   }
   if(cfg.gistId){
-    fetch('https://api.github.com/gists/'+cfg.gistId,{headers:headers})
-      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
-      .then(applyGist)
-      .catch(function(e){
-        // 存的 ID 失效，尝试搜索
-        gistSearchLatest(cfg.token,headers,applyGist);
-      });
+    gistFetch('https://api.github.com/gists/'+cfg.gistId,{headers:headers},3,applyGist,function(){
+      gistSearchLatest(cfg.token,headers,applyGist);
+    });
   }else{
     gistSearchLatest(cfg.token,headers,applyGist);
   }
 }
 function gistSearchLatest(token,headers,cb){
-  fetch('https://api.github.com/gists?per_page=100',{headers:headers})
-    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
-    .then(function(list){
-      var best=null,bestTs=0;
-      list.forEach(function(g){
-        if(g.description&&g.description.indexOf(GIST_DESC)===0&&g.files&&g.files[GIST_FILE]){
-          var parts=g.description.split('|');
-          var ts=parts[1]?parseInt(parts[1]):0;
-          if(ts>bestTs){bestTs=ts;best=g;}
-        }
-      });
-      if(!best){gistShowMsg('未找到同步数据，请先上传','err');return;}
-      cb(best);
-    })
-    .catch(function(e){gistErr('下载',e);});
+  gistFetch('https://api.github.com/gists?per_page=100',{headers:headers},3,function(list){
+    var best=null,bestTs=0;
+    list.forEach(function(g){
+      if(g.description&&g.description.indexOf(GIST_DESC)===0&&g.files&&g.files[GIST_FILE]){
+        var parts=g.description.split('|');
+        var ts=parts[1]?parseInt(parts[1]):0;
+        if(ts>bestTs){bestTs=ts;best=g;}
+      }
+    });
+    if(!best){gistShowMsg('未找到同步数据，请先上传','err');return;}
+    cb(best);
+  },function(e){gistErr('下载',e);});
 }
 // ========== 自动上传 ==========
 var autoUpload=false;
@@ -1019,14 +1023,11 @@ function doAutoUpload(){
   var body=JSON.stringify({description:desc,public:false,files:{}});
   body=JSON.parse(body);body.files[GIST_FILE]={content:data};body=JSON.stringify(body);
   var headers={'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'};
-  fetch('https://api.github.com/gists',{method:'POST',headers:headers,body:body})
-    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
-    .then(function(d){
-      _lastUpload=Date.now();
-      if(d.id){document.getElementById('gistId').value=d.id;saveGistConfig();}
-      gistShowMsg('自动上传成功（'+new Date().toLocaleTimeString()+'）','ok');
-    })
-    .catch(function(e){gistShowMsg('自动上传失败：'+e.message,'err');});
+  gistFetch('https://api.github.com/gists',{method:'POST',headers:headers,body:body},3,function(d){
+    _lastUpload=Date.now();
+    if(d.id){document.getElementById('gistId').value=d.id;saveGistConfig();}
+    gistShowMsg('自动上传成功（'+new Date().toLocaleTimeString()+'）','ok');
+  },function(e){gistShowMsg('自动上传失败：'+e.message,'err');});
 }
 
 // ========== 剪贴板同步（离线备份） ==========
