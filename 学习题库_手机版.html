@@ -929,7 +929,7 @@ function gistUpload(){
   gistShowMsg('正在上传...');
   var desc=GIST_DESC+'|'+Date.now();
   var body=JSON.stringify({description:desc,public:false,files:{}});
-  body=JSON.parse(body);body[GIST_FILE]={content:data};body=JSON.stringify(body);
+  body=JSON.parse(body);body.files[GIST_FILE]={content:data};body=JSON.stringify(body);
   var headers={'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'};
   fetch('https://api.github.com/gists',{method:'POST',headers:headers,body:body})
     .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
@@ -1017,7 +1017,7 @@ function doAutoUpload(){
   var data=encodeData();if(!data)return;
   var desc=GIST_DESC+'|'+Date.now();
   var body=JSON.stringify({description:desc,public:false,files:{}});
-  body=JSON.parse(body);body[GIST_FILE]={content:data};body=JSON.stringify(body);
+  body=JSON.parse(body);body.files[GIST_FILE]={content:data};body=JSON.stringify(body);
   var headers={'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'};
   fetch('https://api.github.com/gists',{method:'POST',headers:headers,body:body})
     .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
