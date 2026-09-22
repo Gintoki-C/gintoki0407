@@ -236,8 +236,25 @@ footer{text-align:center;color:var(--sub);font-size:12px;padding:20px 0 10px}
     <div class="hint">学习记录自动保存在本机浏览器。换手机/换浏览器时，先在这里导出，再在另一端导入即可继续。</div>
     <div class="stat-grid" id="dataStats"></div>
     <div class="sync-area">
-      <div class="m-label">数据备份（剪贴板）</div>
-      <div class="hint">点「复制数据」将学习进度压缩后复制到剪贴板，在另一设备点「粘贴导入」即可恢复。完全离线，无需网络。</div>
+      <div class="m-label">Gist 云同步</div>
+      <div class="hint">数据存在你的 GitHub Gist 私密文件里。填 Token 后先「上传」，成功后 Gist ID 自动填充。换设备填同 ID 点「下载」即可。</div>
+      <div class="m-label" style="margin-top:10px">GitHub Token（需 gist 权限）</div>
+      <input type="password" id="gistToken" class="clip-input" placeholder="粘贴 Personal Access Token" onchange="saveGistConfig()">
+      <div class="m-label">Gist ID（首次上传后自动填充）</div>
+      <input type="text" id="gistId" class="clip-input" placeholder="留空，上传后自动生成" onchange="saveGistConfig()">
+      <div class="btn-row">
+        <button class="mbtn-p" onclick="gistUpload()">上传同步</button>
+        <button class="mbtn-s" onclick="gistDownload()">下载同步</button>
+      </div>
+      <div id="gistStatus" class="clip-status"></div>
+      <div class="setrow" style="margin-top:10px">
+        <div class="lbl">自动上传<div class="desc">答题后自动同步（防抛 15 秒，最少间隔 60 秒）</div></div>
+        <label class="toggle"><input type="checkbox" id="autoUploadToggle" onchange="toggleAutoUpload()"><span class="slider"></span></label>
+      </div>
+    </div>
+    <div class="sync-area">
+      <div class="m-label">离线备份（剪贴板）</div>
+      <div class="hint">无需网络时用剪贴板搬数据，作为 Gist 的离线备用。</div>
       <div class="btn-row" style="margin-top:10px">
         <button class="mbtn-p" onclick="clipExport()">复制数据到剪贴板</button>
         <button class="mbtn-s" onclick="clipImportToggle()">粘贴导入</button>
@@ -434,6 +451,7 @@ function judgeLearn(q,ob,sel){
       if(autoNext&&mode==='learn')go(1);
     }
   }
+  scheduleAutoUpload();
 }
 function showAnswer(){
   var list=filterList();var q=list[learnIdx];if(!q)return;
@@ -672,6 +690,7 @@ function submitExam(){
   });
   saveWrong();
   saveExamHistory(Math.round(totalScore*10)/10,correct,wrong,examList.filter(function(q){var al=ansLetters(q);var sel=examAnswers[q.id]&&examAnswers[q.id].sel?examAnswers[q.id].sel:[];return !sel.length||sel.slice().sort().join('')!==al.slice().sort().join('');}).map(function(q){return q.id;}));
+  scheduleAutoUpload();
   // Lock all cards
   renderExamCard();
   renderExamNavGrid();
@@ -835,6 +854,7 @@ function refreshDataStats(){
 }
 function openData(){
   refreshDataStats();
+  loadGistConfig();
   document.getElementById('dataMask').classList.add('show');
 }
 function closeData(){document.getElementById('dataMask').classList.remove('show');}
@@ -862,6 +882,123 @@ document.addEventListener('keydown',function(e){
   if(k==='ArrowUp'||k==='ArrowLeft'){e.preventDefault();if(mode==='learn')go(-1);else if(mode==='exam')exGo(-1);}
   else if(k==='ArrowDown'||k==='ArrowRight'){e.preventDefault();if(mode==='learn')go(1);else if(mode==='exam')exGo(1);}
 });
+
+// ========== Gist 云同步 ==========
+var GIST_FILE='tk_sync.txt';
+function saveGistConfig(){
+  try{
+    localStorage.setItem('tk_gist_token',document.getElementById('gistToken').value.trim());
+    localStorage.setItem('tk_gist_id',document.getElementById('gistId').value.trim());
+  }catch(e){}
+}
+function loadGistConfig(){
+  try{
+    document.getElementById('gistToken').value=localStorage.getItem('tk_gist_token')||'';
+    document.getElementById('gistId').value=localStorage.getItem('tk_gist_id')||'';
+    document.getElementById('autoUploadToggle').checked=localStorage.getItem('tk_autoupload')==='1';
+  }catch(e){}
+}
+function getGistCfg(){
+  return{
+    token:(localStorage.getItem('tk_gist_token')||'').trim(),
+    gistId:(localStorage.getItem('tk_gist_id')||'').trim()
+  };
+}
+function gistShowMsg(msg,type){
+  var el=document.getElementById('gistStatus');
+  if(el){el.textContent=msg;el.className='clip-status'+(type?' '+type:'');}
+}
+function gistApi(url,method,token,body,cb,errCb){
+  var headers={'Authorization':'token '+token,'Accept':'application/vnd.github.v3+json'};
+  var opts={method:method,headers:headers};
+  if(body){headers['Content-Type']='application/json';opts.body=body;}
+  fetch(url,opts)
+    .then(function(r){
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      return r.json();
+    })
+    .then(function(d){cb(d);})
+    .catch(function(e){errCb(e);});
+}
+function gistUpload(){
+  var cfg=getGistCfg();
+  if(!cfg.token){gistShowMsg('请先填写 Token','err');return;}
+  var data=encodeData();
+  if(!data){gistShowMsg('编码失败','err');return;}
+  saveGistConfig();
+  gistShowMsg('正在上传...');
+  var body=JSON.stringify({description:'题库学习进度',public:false,files:{}});
+  body=JSON.parse(body);body[GIST_FILE]={content:data};body=JSON.stringify(body);
+  if(!cfg.gistId){
+    gistApi('https://api.github.com/gists','POST',cfg.token,body,function(d){
+      if(d.id){document.getElementById('gistId').value=d.id;saveGistConfig();}
+      gistShowMsg('上传成功（'+new Date().toLocaleTimeString()+'）','ok');
+    },function(e){gistErr('上传',e);});
+  }else{
+    gistApi('https://api.github.com/gists/'+cfg.gistId,'PATCH',cfg.token,body,function(d){
+      gistShowMsg('上传成功（'+new Date().toLocaleTimeString()+'）','ok');
+    },function(e){gistErr('上传',e);});
+  }
+}
+function gistDownload(){
+  var cfg=getGistCfg();
+  if(!cfg.token){gistShowMsg('请先填写 Token','err');return;}
+  if(!cfg.gistId){gistShowMsg('请先上传以获取 Gist ID','err');return;}
+  saveGistConfig();
+  gistShowMsg('正在下载...');
+  gistApi('https://api.github.com/gists/'+cfg.gistId,'GET',cfg.token,null,function(d){
+    var f=d.files&&d.files[GIST_FILE];
+    if(!f||!f.content){gistShowMsg('Gist 中未找到同步数据','err');return;}
+    var decoded=decodeData(f.content);
+    if(!decoded){gistShowMsg('数据解析失败','err');return;}
+    if(!confirm('确认从 Gist 下载并覆盖当前学习进度？')){gistShowMsg('已取消');return;}
+    wrongSet=decoded.wrong||{};doneSet=decoded.done||{};
+    if(decoded.learnPos!==undefined){learnPos=decoded.learnPos;try{localStorage.setItem('tk_learnpos',JSON.stringify(learnPos));}catch(e){}}
+    if(decoded.examHistory){examHistory=decoded.examHistory;try{localStorage.setItem('tk_exam_history',JSON.stringify(examHistory));}catch(e){}}
+    saveWrong();saveDone();
+    refreshDataStats();renderAll();renderMode();
+    gistShowMsg('下载同步成功','ok');
+  },function(e){gistErr('下载',e);});
+}
+function gistErr(act,e){
+  var msg=e.message;
+  if(msg.indexOf('401')>=0)msg='Token 无效';
+  else if(msg.indexOf('404')>=0)msg='Gist 不存在';
+  else if(msg.indexOf('Failed to fetch')>=0||msg.indexOf('NetworkError')>=0)msg='网络连接失败';
+  gistShowMsg(act+'失败：'+msg,'err');
+}
+// ========== 自动上传 ==========
+var autoUpload=false;
+try{autoUpload=localStorage.getItem('tk_autoupload')==='1';}catch(e){}
+function toggleAutoUpload(){
+  autoUpload=document.getElementById('autoUploadToggle').checked;
+  try{localStorage.setItem('tk_autoupload',autoUpload?'1':'0');}catch(e){}
+  if(!autoUpload&&_uploadTimer){clearTimeout(_uploadTimer);_uploadTimer=null;}
+}
+var _uploadTimer=null,_lastUpload=0;
+function scheduleAutoUpload(){
+  if(!autoUpload)return;
+  var cfg=getGistCfg();
+  if(!cfg.token)return;
+  if(_uploadTimer)clearTimeout(_uploadTimer);
+  var now=Date.now(),sinceLast=now-_lastUpload,debounceMs=15000,throttleMs=60000;
+  if(sinceLast>=throttleMs){
+    _uploadTimer=setTimeout(function(){_uploadTimer=null;doAutoUpload();},debounceMs);
+  }else{
+    _uploadTimer=setTimeout(function(){_uploadTimer=null;doAutoUpload();},Math.max(debounceMs,throttleMs-sinceLast));
+  }
+}
+function doAutoUpload(){
+  _lastUpload=Date.now();
+  var cfg=getGistCfg();
+  if(!cfg.token||!cfg.gistId)return;
+  var data=encodeData();if(!data)return;
+  var body=JSON.stringify({description:'题库学习进度',files:{}});
+  body=JSON.parse(body);body[GIST_FILE]={content:data};body=JSON.stringify(body);
+  gistApi('https://api.github.com/gists/'+cfg.gistId,'PATCH',cfg.token,body,function(d){
+    gistShowMsg('自动上传成功（'+new Date().toLocaleTimeString()+'）','ok');
+  },function(e){gistShowMsg('自动上传失败：'+e.message,'err');});
+}
 
 // ========== 剪贴板同步（离线备份） ==========
 function clipExport(){
