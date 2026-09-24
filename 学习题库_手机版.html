@@ -448,7 +448,7 @@ function judgeLearn(q,ob,sel){
   if(autoNext&&right){
     var list=filterList();
     if(learnIdx<list.length-1){
-      if(autoNext&&mode==='learn')go(1);
+      if(mode==='learn')setTimeout(function(){go(1);},800);
     }
   }
   scheduleAutoUpload();
@@ -619,14 +619,19 @@ function examPick(q,i,el,ob){
     else{sel.push(my);el.classList.add('sel');}
     examAnswers[q.id]=examAnswers[q.id]||{};
     examAnswers[q.id].sel=dispToOrig(q,sel);
+    updateExamBar();
+    renderExamNavGrid();
   }else{
     ob.querySelectorAll('.opt').forEach(function(e){e.classList.remove('sel');});
     el.classList.add('sel');
     examAnswers[q.id]=examAnswers[q.id]||{};
     examAnswers[q.id].sel=dispToOrig(q,[my]);
+    updateExamBar();
+    renderExamNavGrid();
+    if(autoNext&&examIdx<examList.length-1){
+      setTimeout(function(){exGo(1);},500);
+    }
   }
-  updateExamBar();
-  renderExamNavGrid();
 }
 function lockExamCard(q,ob){
   var al=ansLetters(q);
