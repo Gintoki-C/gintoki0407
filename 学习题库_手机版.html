@@ -892,6 +892,7 @@ document.addEventListener('keydown',function(e){
 // CORS 限制：GitHub Gist API 不允许跨域 PATCH，所以每次上传都 POST 创建新 Gist
 // 额外把时间戳写进 description，下载时列表搜索最新的一条
 var GIST_FILE='tk_sync.txt';
+var GIST_FILES=['tk_sync.txt','tk_sync.json','tk_data.txt','tk_data.json'];
 var GIST_DESC='tk_sync';
 function saveGistConfig(){
   try{
@@ -964,8 +965,11 @@ function gistDownload(){
   gistShowMsg('正在下载...');
   var headers={'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json'};
   function applyGist(d){
-    var f=d.files&&d.files[GIST_FILE];
-    if(!f||!f.content){gistShowMsg('Gist 中未找到同步数据','err');return;}
+    var f=null;
+    for(var i=0;i<GIST_FILES.length;i++){
+      if(d.files&&d.files[GIST_FILES[i]]&&d.files[GIST_FILES[i]].content){f=d.files[GIST_FILES[i]];break;}
+    }
+    if(!f){gistShowMsg('Gist 中未找到同步数据（已知文件名：'+GIST_FILES.join(', ')+'）','err');return;}
     var decoded=decodeData(f.content);
     if(!decoded){gistShowMsg('数据解析失败','err');return;}
     if(!confirm('确认从 Gist 下载并覆盖当前学习进度？')){gistShowMsg('已取消');return;}
@@ -990,7 +994,9 @@ function gistSearchLatest(token,headers,cb){
     if(!list||!list.length){gistShowMsg('Gist 列表为空，请确认 Token 正确且已上传过','err');return;}
     var best=null,bestTs=0;
     list.forEach(function(g){
-      if(g.description&&g.description.indexOf(GIST_DESC)===0&&g.files&&g.files[GIST_FILE]){
+      var hasFile=false;
+      for(var i=0;i<GIST_FILES.length;i++){if(g.files&&g.files[GIST_FILES[i]]){hasFile=true;break;}}
+      if(g.description&&g.description.indexOf(GIST_DESC)===0&&hasFile){
         var parts=g.description.split('|');
         var ts=parts[1]?parseInt(parts[1]):0;
         if(ts>bestTs){bestTs=ts;best=g;}
