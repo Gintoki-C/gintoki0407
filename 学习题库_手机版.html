@@ -987,6 +987,7 @@ function gistDownload(){
 }
 function gistSearchLatest(token,headers,cb){
   gistFetch('https://api.github.com/gists?per_page=100',{headers:headers},3,function(list){
+    if(!list||!list.length){gistShowMsg('Gist 列表为空，请确认 Token 正确且已上传过','err');return;}
     var best=null,bestTs=0;
     list.forEach(function(g){
       if(g.description&&g.description.indexOf(GIST_DESC)===0&&g.files&&g.files[GIST_FILE]){
@@ -995,7 +996,7 @@ function gistSearchLatest(token,headers,cb){
         if(ts>bestTs){bestTs=ts;best=g;}
       }
     });
-    if(!best){gistShowMsg('未找到同步数据，请先上传','err');return;}
+    if(!best){gistShowMsg('未找到同步数据（列表共 '+list.length+' 个 Gist，无 tk_sync 开头）','err');return;}
     cb(best);
   },function(e){gistErr('下载',e);});
 }
