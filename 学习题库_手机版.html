@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FDE · AI · 安全 题库学习 v2.3</title>
+<title>FDE · AI · 安全 题库学习 v2.4</title>
 <style>
 :root{
 --bg:#f7f3df;--card:#fffdf5;--text:#794f27;--sub:#9f927d;--brand:#19c8b9;--brand-hover:#3dd4c6;--brand-bg:#e6f9f6;
@@ -268,7 +268,7 @@ footer{text-align:center;color:var(--sub);font-size:12px;padding:20px 0 10px}
   </div>
 </div>
 
-<footer>题库学习助手 v2.3 · 学习进度自动保存在本机浏览器</footer>
+<footer>题库学习助手 v2.4 · 学习进度自动保存在本机浏览器</footer>
 
 <script>
 // LZString 压缩库（官方 1.4.4）
@@ -1034,7 +1034,10 @@ function gistSearchLatest(token,headers,cb){
       }
     });
     if(!best){gistShowMsg('未找到同步数据（列表共 '+list.length+' 个 Gist，无 tk_sync 开头）','err');return;}
-    cb(best);
+    // 列表接口不返回文件内容，需用 ID 单独请求详情
+    gistFetch('https://api.github.com/gists/'+best.id,{headers:headers},3,function(detail){
+      cb(detail);
+    },function(e){gistErr('下载',e);});
   },function(e){gistErr('下载',e);});
 }
 // ========== 自动上传 ==========
