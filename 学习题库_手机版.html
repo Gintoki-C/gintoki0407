@@ -965,11 +965,26 @@ function gistDownload(){
   gistShowMsg('正在下载...');
   var headers={'Authorization':'token '+cfg.token,'Accept':'application/vnd.github.v3+json'};
   function applyGist(d){
+    // 优先按已知文件名查找
     var f=null;
     for(var i=0;i<GIST_FILES.length;i++){
       if(d.files&&d.files[GIST_FILES[i]]&&d.files[GIST_FILES[i]].content){f=d.files[GIST_FILES[i]];break;}
     }
-    if(!f){gistShowMsg('Gist 中未找到同步数据（已知文件名：'+GIST_FILES.join(', ')+'）','err');return;}
+    // 找不到就遍历所有文件，逐个尝试解析数据
+    if(!f&&d.files){
+      var names=Object.keys(d.files);
+      for(var j=0;j<names.length;j++){
+        var cand=d.files[names[j]];
+        if(cand&&cand.content){
+          var t=decodeData(cand.content);
+          if(t){f=cand;break;}
+        }
+      }
+    }
+    if(!f){
+      var actual=d.files?Object.keys(d.files).join(', '):'无';
+      gistShowMsg('Gist 中没有可用的同步数据（实际文件：'+actual+'）','err');return;
+    }
     var decoded=decodeData(f.content);
     if(!decoded){gistShowMsg('数据解析失败','err');return;}
     if(!confirm('确认从 Gist 下载并覆盖当前学习进度？')){gistShowMsg('已取消');return;}
